@@ -37,19 +37,21 @@ Formerly called MiRemote.
 
 ### Download
 
-Grab the latest build from the [Releases](https://github.com/aminnazri/zapper/releases)
-page. The macOS build is a universal-friendly x86_64 bundle that runs on both
-Intel Macs and Apple Silicon (via Rosetta).
+Grab `Zapper-macOS.dmg` from the [Releases](https://github.com/aminnazri/zapper/releases)
+page. It's an Intel (x86_64) build and also runs on Apple Silicon through
+Rosetta 2.
 
-1. Unzip `Zapper-macOS.zip`.
-2. Move `Zapper.app` to `/Applications`.
-3. The app isn't notarized, so the first launch is blocked. Right-click it and
-   choose **Open**, then confirm. If macOS still refuses, clear the quarantine
-   flag:
+1. Open the DMG and drag **Zapper** onto **Applications**.
+2. Open Zapper from Applications. The first time, macOS blocks it because the
+   app isn't notarized by Apple yet.
+3. Go to **System Settings → Privacy & Security**, scroll down to the message
+   about Zapper, click **Open Anyway**, and confirm. You only do this once.
 
-   ```bash
-   xattr -dr com.apple.quarantine /Applications/Zapper.app
-   ```
+If you prefer the terminal, this does the same as step 3:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Zapper.app
+```
 
 Zapper lives in the menu bar (look for the TV icon), not the Dock.
 
@@ -66,7 +68,9 @@ open build/Zapper.app
 ```
 
 `make-app.sh` compiles the app and the CLI, assembles the bundle, and signs it.
-It builds for whatever architecture the Mac you run it on uses.
+It builds for whatever architecture the Mac you run it on uses. To package a
+build for distribution, `Scripts/make-dmg.sh` wraps it in a drag-to-install
+disk image at `build/Zapper-macOS.dmg`.
 
 ## Using the app
 
