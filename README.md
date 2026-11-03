@@ -1,5 +1,9 @@
 # Zapper
 
+[![Latest release](https://img.shields.io/github/v/release/aminnazri/zapper)](https://github.com/aminnazri/zapper/releases/latest)
+![macOS 13+](https://img.shields.io/badge/macOS-13%2B-blue)
+![Intel](https://img.shields.io/badge/build-Intel%20x86__64-lightgrey)
+
 A macOS menu bar remote for Google TV and Android TV. Point it at a Chromecast
 with Google TV, a Xiaomi Mi Box or Mi TV, a Sony/TCL/Philips/Hisense Android TV,
 an Nvidia Shield, and so on. It controls the device over your local network — no
@@ -37,9 +41,12 @@ Formerly called MiRemote.
 
 ### Download
 
-Grab `Zapper-macOS.dmg` from the [Releases](https://github.com/aminnazri/zapper/releases)
-page. It's an Intel (x86_64) build and also runs on Apple Silicon through
-Rosetta 2.
+**[Download Zapper-macOS.dmg](https://github.com/aminnazri/zapper/releases/latest/download/Zapper-macOS.dmg)**
+(latest release). Release notes, older versions, and SHA-256 checksums are on
+the [Releases](https://github.com/aminnazri/zapper/releases) page.
+
+It's an Intel (x86_64) build and also runs on Apple Silicon through Rosetta 2.
+You need macOS 13 Ventura or later.
 
 1. Open the DMG and drag **Zapper** onto **Applications**.
 2. Open Zapper from Applications. The first time, macOS blocks it because the
@@ -68,9 +75,20 @@ open build/Zapper.app
 ```
 
 `make-app.sh` compiles the app and the CLI, assembles the bundle, and signs it.
-It builds for whatever architecture the Mac you run it on uses. To package a
-build for distribution, `Scripts/make-dmg.sh` wraps it in a drag-to-install
-disk image at `build/Zapper-macOS.dmg`.
+It builds for whatever architecture the Mac you run it on uses.
+
+### Making a release
+
+```bash
+./Scripts/make-app.sh
+codesign --force --deep --sign - build/Zapper.app   # ad-hoc, so it isn't tied to your local cert
+./Scripts/make-dmg.sh                                # → build/Zapper-macOS.dmg
+git tag -a v0.2.0 -m "Zapper 0.2.0" && git push origin v0.2.0
+gh release create v0.2.0 build/Zapper-macOS.dmg --title "Zapper 0.2.0" --notes-file NOTES.md
+```
+
+Keep the asset named `Zapper-macOS.dmg`: the download link above points at
+whichever release is latest and expects that name.
 
 ## Using the app
 
@@ -125,6 +143,9 @@ A few things to know:
   720p.
 - If the TV's mirroring receiver refuses the session, Zapper falls back to the
   regular casting path automatically, so you still get a picture.
+- It's video only for now. Sound keeps playing on the Mac. If you need the
+  audio on the TV, share an app, window, or tab instead, which goes through
+  regular casting.
 - Other sources (an app, a window, a tab) use the regular casting path for now.
 
 Screen sharing needs the **Screen Recording** permission (macOS prompts you the
