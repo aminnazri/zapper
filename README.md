@@ -15,16 +15,23 @@ scripting or for figuring out why a particular TV is misbehaving.
 
 Formerly called MiRemote.
 
-<p align="center">
-  <img src="docs/images/remote.png" width="260" alt="The remote: D-pad, volume, and shortcut tiles">
-  &nbsp;
-  <img src="docs/images/cast.png" width="260" alt="The cast drawer while mirroring the screen">
-  &nbsp;
-  <img src="docs/images/picker.png" width="260" alt="Choosing a TV on the network">
-</p>
+<table align="center">
+  <tr>
+    <td rowspan="2" valign="top">
+      <img src="docs/images/remote.png" width="300" alt="The remote: D-pad, volume, and shortcut tiles">
+    </td>
+    <td valign="top">
+      <img src="docs/images/picker.png" width="300" alt="Choosing a TV on the network">
+    </td>
+  </tr>
+  <tr>
+    <td valign="bottom">
+      <img src="docs/images/cast-drawer.png" width="300" alt="The cast drawer while mirroring the screen">
+    </td>
+  </tr>
+</table>
 
-From left: the remote, the cast drawer while mirroring the screen, and the TV
-picker.
+<p align="center">The remote, picking a TV, and the cast drawer while mirroring the screen.</p>
 
 ## Install
 
