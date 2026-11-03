@@ -32,5 +32,8 @@ struct ZapperApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        if let directory = Snapshotter.outputDirectory {
+            Task { @MainActor in await Snapshotter.run(to: directory) }
+        }
     }
 }

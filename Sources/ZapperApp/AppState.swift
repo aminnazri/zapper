@@ -1559,3 +1559,36 @@ private extension RemoteCommand {
         }
     }
 }
+
+// MARK: - README screenshots
+
+extension AppState {
+    /// Puts the panel into a representative state for `Snapshotter`. Memory
+    /// only: nothing here is saved, and no connection is made.
+    func applyShowcase(_ scene: SnapshotScene) {
+        let living = Device(name: "Living Room TV", host: "192.168.1.20", lastConnected: Date())
+        let bedroom = Device(name: "Bedroom Mi Box", host: "192.168.1.31", lastConnected: Date())
+        let office = Device(name: "Office Chromecast", host: "192.168.1.44")
+        devices = [living, bedroom, office]
+        nearby = [living.id, bedroom.id, office.id]
+
+        guard scene != .picker else {
+            selectedID = nil
+            status = "Found 3 TVs"
+            return
+        }
+        selectedID = living.id
+        link = .online
+        isOn = true
+        volumeLevel = 18
+        volumeMax = 100
+        currentAppLabel = "YouTube"
+        status = "Sent Home"
+
+        if scene == .cast {
+            casting = CastNow(title: "Built-in Retina Display", symbol: "display",
+                              deviceName: living.name, isMirror: true, isStarting: false)
+            status = "Mirroring Built-in Retina Display to \(living.name) — real-time"
+        }
+    }
+}

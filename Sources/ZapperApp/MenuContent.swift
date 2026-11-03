@@ -5,6 +5,10 @@ import ATVKit
 
 struct MenuContent: View {
     @ObservedObject var state: AppState
+    /// Rendering for a README screenshot: no scanning, no connection, no
+    /// keyboard capture, and `snapshotDrawer` opened from the start.
+    var isSnapshot = false
+    var snapshotDrawer: Drawer? = nil
     @StateObject private var keys = KeyMonitor()
     @State private var drawer: Drawer?
     /// Drives the staggered entrance each time the panel opens.
@@ -67,6 +71,11 @@ struct MenuContent: View {
         .overlay { if dropTargeted { dropHint } }
         .onDrop(of: [.fileURL], isTargeted: $dropTargeted, perform: castDropped)
         .onAppear {
+            if isSnapshot {
+                drawer = snapshotDrawer
+                appeared = true
+                return
+            }
             state.scanNearbyIfStale()
             state.startMonitoring()
             keys.start(handle)
@@ -74,6 +83,7 @@ struct MenuContent: View {
             withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) { appeared = true }
         }
         .onDisappear {
+            guard !isSnapshot else { return }
             state.stopMonitoring()
             keys.stop()
             appeared = false
