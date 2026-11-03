@@ -1,216 +1,222 @@
 # Zapper
 
-*Formerly MiRemote.*
+A macOS menu bar remote for Google TV and Android TV. Point it at a Chromecast
+with Google TV, a Xiaomi Mi Box or Mi TV, a Sony/TCL/Philips/Hisense Android TV,
+an Nvidia Shield, and so on. It controls the device over your local network — no
+phone, no vendor account, no cloud.
 
-Control any Google TV or Android TV (Chromecast with Google TV, Xiaomi Mi Box /
-Mi TV, Sony, TCL, Philips, Hisense, Nvidia Shield…) from macOS — menu bar app
-plus a CLI for testing each layer.
+It also casts to the TV: video, photos and music from your Mac, a web link, or
+your screen. Whole-screen sharing has a low-latency mode that mirrors in close to
+real time instead of the two-second lag you get from normal casting.
 
-Protocol details were recovered from a decompilation of the
-`com.osfunapps.remoteformibox` Android app; inline comments cite the original
-class names.
+There's a command-line tool alongside the app that exposes each layer
+(discovery, pairing, key presses, casting) on its own, which is handy for
+scripting or for figuring out why a particular TV is misbehaving.
 
-## Status
+Formerly called MiRemote.
 
-| Layer | State |
-|---|---|
-| mDNS discovery (`_androidtvremote2._tcp`) | done |
-| Client certificate + Keychain identity | done |
-| TLS with client auth + permissive/pinned verify | done |
-| Wake-on-LAN | done |
-| Varint length-delimited framing | done |
-| Multi-brand adapter protocol | done |
-| Menu bar app + global hotkey | done |
-| MAC recovery from IPv6 link-local (EUI-64) | done |
-| Menu bar GUI (built, running) | done |
-| Client certificate via openssl + SecPKCS12Import | done |
-| Protobuf message types | **not included** — see `PROTOBUF.md` |
+## Install
 
-### Verified against real hardware (2026-08-18)
+### Download
 
-Three Xiaomi TVs on this network, all the same platform (`MiTV-MSSP3`,
-codename `machuca`) despite the naming:
+Grab the latest build from the [Releases](https://github.com/aminnazri/zapper/releases)
+page. The macOS build is a universal-friendly x86_64 bundle that runs on both
+Intel Macs and Apple Silicon (via Rosetta).
 
-| Device | MAC | 6467 pairing | 6466 remote |
-|---|---|---|---|
-| MDR-MITV-03 | b4:c9:b9:80:b7:96 | OK | OK |
-| LG-MITV-02  | b4:c9:b9:80:8e:1c | OK | OK |
-| MDR-MITV-05 | b4:c9:b9:80:f9:84 | OK | OK |
+1. Unzip `Zapper-macOS.zip`.
+2. Move `Zapper.app` to `/Applications`.
+3. The app isn't notarized, so the first launch is blocked. Right-click it and
+   choose **Open**, then confirm. If macOS still refuses, clear the quarantine
+   flag:
 
-All negotiate `TLSv1.2, ECDHE-RSA-AES128-GCM-SHA256` and accept our
-self-signed client certificate. Discovery returns names, ports and MACs for
-all three. All 16 logic checks pass.
+   ```bash
+   xattr -dr com.apple.quarantine /Applications/Zapper.app
+   ```
 
-**The device certificate MAC is always the Wi-Fi MAC + 1** (the Bluetooth
-MAC): `...b7:96 -> B7:97`, `...8e:1c -> 8E:1D`, `...f9:84 -> F9:85`.
-Consistent across all three, which independently confirms the EUI-64
-derivation in `MACAddress.swift`.
+Zapper lives in the menu bar (look for the TV icon), not the Dock.
 
-**Wake-on-LAN sends to two addresses.** Verified by binding a UDP listener on
-6466 and capturing the packet: a datagram sent to `255.255.255.255` is
-delivered to local sockets, one sent to the directed subnet broadcast
-(`192.168.21.255`) is not — so there is no way to confirm locally that the
-directed send left the machine. `WakeOnLAN.wake` therefore sends to both. The
-captured packet is byte-identical to the expected 102-byte magic packet.
+### Build from source
 
-**Certificate subject format varies by firmware.** Two devices use
-
-    CN=atvremote/machuca/machuca/MiTV-MSSP3/B4:C9:B9:80:B7:97
-
-while the third splits it:
-
-    dnQualifier=machuca/machuca/MiTV-MSSP3, CN=atvremote/B4:C9:B9:80:F9:85
-
-Never parse the server certificate subject to identify a device — use the
-mDNS instance name. We do not verify or parse it at all.
-
-### Network quirk on these devices
-
-The Mi TVs publish **no IPv4 A record** and both share the mDNS hostname
-`Android.local.`, so discovery only ever yields IPv6 link-local addresses and
-they never appear in the ARP cache. `MACAddress.fromIPv6LinkLocal` recovers the
-hardware MAC from the EUI-64 interface identifier instead:
-
-    fe80::b6c9:b9ff:fe80:f984%en0  ->  b4:c9:b9:80:f9:84
-
-Wake-on-LAN is a broadcast, so it needs only that MAC plus this Mac's own
-subnet broadcast (`MACAddress.localBroadcastAddress()`).
-
-`pair()` and `connect()` throw `.notImplemented` until the protobuf types are
-generated. Discovery, wake, and the TLS probe work without them — and wake is
-the feature you actually wanted most.
-
-## Quick start
+You need macOS 13 or later and a Swift toolchain (Xcode or the Command Line
+Tools). There are no external dependencies.
 
 ```bash
+git clone https://github.com/aminnazri/zapper.git
+cd zapper
 ./Scripts/make-app.sh
-open build/Zapper.app        # menu bar app — look for the TV icon
-./build/zapper discover      # CLI
-```
-
-**No external dependencies.** The client certificate is minted once with
-`openssl` and imported via `SecPKCS12Import`, rather than pulling in
-swift-certificates + swift-crypto + BoringSSL for a one-time operation. That
-also means the build works without SwiftPM, which matters here (see Toolchain).
-
-## Requirements
-
-macOS 13+, Swift 6.
-
-> **Fix the toolchain first.**
-> `/Library/Developer/CommandLineTools/usr/include/swift/` contains two
-> modulemaps that both define module `SwiftBridging`:
-> `module.modulemap` (stale, Aug 2023) and `bridging.modulemap` (current,
-> Apr 2025). The duplicate makes every `import Foundation` fail, so nothing
-> compiles — not even Apple's own `swift package init` template.
->
-> ```bash
-> sudo mv /Library/Developer/CommandLineTools/usr/include/swift/module.modulemap \
->         /Library/Developer/CommandLineTools/usr/include/swift/module.modulemap.disabled
-> ```
->
-> **Second, stale `.private.swiftinterface` files break SwiftPM.** Four files
-> dated Feb 2024 sit beside Apr 2025 siblings; swiftc prefers the private one,
-> compiles against the old `Package.init` signature, and the linker then can't
-> find that symbol in the current dylib.
->
-> ```bash
-> sudo find /Library/Developer/CommandLineTools/usr/lib/swift/pm \
->      -name "*.private.swiftinterface" -exec mv {} {}.disabled \;
-> ```
->
-> Both are stale leftovers from a CLT upgrade over an old install. If SwiftPM
-> still errors, reinstall cleanly:
-> `sudo rm -rf /Library/Developer/CommandLineTools && xcode-select --install`
-
-## The menu bar app
-
-```bash
-./Scripts/make-app.sh          # builds build/Zapper.app and build/zapper
 open build/Zapper.app
 ```
 
-The script exists because a `MenuBarExtra` app needs a real bundle with
-`LSUIElement=1` to appear in the menu bar at all — `swift run` gives you a bare
-executable with no `Info.plist`. It also writes `NSBonjourServices` and
-`NSLocalNetworkUsageDescription`, which macOS requires before it will let the
-app browse mDNS, and ad-hoc signs so the Local Network prompt appears. No Xcode
-required.
+`make-app.sh` compiles the app and the CLI, assembles the bundle, and signs it.
+It builds for whatever architecture the Mac you run it on uses.
 
-The menu contains a device picker, a **Turn on TV** button, a D-pad with volume
-and navigation, Discover, and Test connection. The D-pad will report
-`notImplemented` until the protobuf types are generated; everything else works.
+## Using the app
 
-Global hotkey: **⌃⌥⌘T** turns the TV on from anywhere.
+Open the menu and Zapper scans the network for TVs. Pick one and it connects.
+The first time you connect to a given TV it asks you to pair: the TV shows a
+six-character code, you type it into the app, and it's remembered after that.
 
-Ordinary hotkeys use Carbon's `RegisterEventHotKey` and need **no** special
-permission. Only intercepting the *media* keys (F7/F8/F9) would require
-`CGEventTap` plus Accessibility permission — not wired up yet.
+The panel gives you:
 
-## The CLI
+- A D-pad with OK, Back, Home, and a settings button. Switch it to a touchpad
+  for TVs running a browser with a mouse cursor.
+- Volume and mute.
+- A power button. See [Turning the TV on](#turning-the-tv-on) for how that works
+  on a streaming box.
+- A text field that types into whatever input is focused on the TV.
+- A cast button for sending media or your screen (below).
+
+While the panel is open your Mac keyboard drives the TV: arrow keys, Return,
+Escape, Space for play/pause, `H` for home, `M` for mute, `-`/`=` for volume,
+and `/` to open the on-screen keyboard.
+
+The global hotkey **⌃⌥⌘T** turns the TV on from anywhere, even with the panel
+closed.
+
+## Casting
+
+Open the cast drawer to send something to the TV:
+
+- **A file** — drop a video, photo, or audio file onto the panel, or pick one.
+- **A link** — paste a URL to a video or stream.
+- **Your screen** — share a whole display, a single app, one window, or a
+  browser tab.
+
+If you share a browser tab that's showing a YouTube video, Zapper offers to open
+it in the TV's own YouTube app instead. That plays at full quality with no lag
+and keeps going while you do other things on the Mac.
+
+### Real-time screen mirroring
+
+Sharing a whole display uses a low-latency path built on Google's Cast Streaming
+(the same mirroring protocol Chrome uses for "Cast screen"). It pushes each
+frame to the TV as it's encoded, over UDP, which brings the delay down to a
+fraction of a second rather than the ~2s that normal media casting buffers.
+
+A few things to know:
+
+- The frame rate is adjustable in the Screen tab (24–120). Higher is smoother;
+  lower is easier on a weak Wi-Fi link. If the picture breaks up or stutters,
+  drop it.
+- It streams at 720p to stay within what Wi-Fi can carry reliably. 1080p floods
+  most home networks and the resulting packet loss looks worse than a clean
+  720p.
+- If the TV's mirroring receiver refuses the session, Zapper falls back to the
+  regular casting path automatically, so you still get a picture.
+- Other sources (an app, a window, a tab) use the regular casting path for now.
+
+Screen sharing needs the **Screen Recording** permission (macOS prompts you the
+first time).
+
+## Turning the TV on
+
+A streaming box like a Mi Box is a *source*: it has no inputs of its own and
+can't switch your TV's input. Zapper turns the TV on through **HDMI-CEC**. When
+the box wakes, it sends a CEC "One Touch Play", which powers the TV on and
+switches it to the box's input in one go.
+
+You have to enable CEC on the TV first. It's usually off by default and every
+brand names it differently: Samsung *Anynet+*, LG *SimpLink*, Sony *Bravia
+Sync*, Xiaomi and TCL just call it *CEC*.
+
+For TVs that support Wake-on-LAN, Zapper can also send a magic packet to wake the
+device directly.
+
+## Command-line tool
+
+The `zapper` binary is built alongside the app (at `build/zapper`). It's useful
+for scripting and for testing one layer at a time.
+
+```
+zapper discover                 find devices on the network (5s scan)
+zapper probe <host>             TLS handshake against the pairing port
+zapper pair <host>              pair (prompts for the on-screen code)
+zapper key <host> <name>        send one key (up, down, ok, home, power, mute, …)
+zapper applink <host> <uri>     launch an app or deep link on the device
+zapper type <host> <text…>      type text into the focused field
+zapper watch <host> [seconds]   print device state (foreground app, volume)
+zapper wake <mac> [broadcast]   send a Wake-on-LAN magic packet
+zapper mirror <host> [secs]     real-time screen mirror over Cast Streaming
+zapper mirror-probe <host>      negotiate a mirror session and print the answer
+zapper identity [reset]         show or regenerate the client certificate
+```
+
+`probe` is a good first check: if the TLS handshake succeeds, certificates,
+Keychain identity, and client auth are all working and the rest is just
+messaging.
+
+## How it works
+
+Zapper speaks the Android TV Remote v2 protocol. It discovers devices over mDNS,
+authenticates with a self-signed client certificate held in the Keychain, and
+talks to the TV over TLS with mutual auth. Casting uses the Cast (Chromecast)
+protocol: the control channel runs over TLS on port 8009, and media plays either
+through the TV's Default Media Receiver (buffered, used for files and links) or
+the Cast Streaming mirroring receiver (real-time, used for screen sharing).
+
+The protocol details were recovered by decompiling the
+`com.osfunapps.remoteformibox` Android app and cross-checked against the
+[openscreen](https://github.com/webrtc/openscreen) Cast Streaming implementation.
+Source comments cite the original class and field names where it matters.
+
+## Project layout
+
+```
+Sources/ATVKit/              protocol core, no UI
+  Identity.swift             RSA keypair → self-signed cert → Keychain identity
+  Transport.swift            TLS with client auth
+  Discovery.swift            mDNS browsing
+  Wake.swift                 Wake-on-LAN magic packet
+  CastChannel.swift          Cast control channel (port 8009)
+  CastSession.swift          media playback via the Default Media Receiver
+  ScreenStream.swift         screen capture → HLS (buffered cast path)
+  CastStreaming/             real-time mirror: offer/answer, RTP, crypto, encoder
+Sources/ZapperApp/           SwiftUI menu bar app
+Sources/zapper/              command-line tool
+Scripts/make-app.sh          builds and signs the .app without Xcode
+Firmware/zapper-bridge/      optional ESP32 Bluetooth bridge firmware
+```
+
+## Troubleshooting
+
+**The build fails with duplicate `SwiftBridging` module or missing
+`Package.init` symbols.** Some Command Line Tools installs, usually ones
+upgraded over an older install, leave stale module maps and interface files that
+shadow the current ones. Two fixes, in order:
 
 ```bash
-swift run zapper discover           # find devices on the LAN
-swift run zapper probe 192.168.1.x  # TLS handshake against port 6467
-swift run zapper wake aa:bb:cc:dd:ee:ff
-swift run zapper identity           # create / show the client certificate
-swift test                            # unit tests, no network needed
+# 1. Duplicate module map that makes every `import Foundation` fail
+sudo mv /Library/Developer/CommandLineTools/usr/include/swift/module.modulemap \
+        /Library/Developer/CommandLineTools/usr/include/swift/module.modulemap.disabled
+
+# 2. Stale private SwiftPM interfaces that break `swift build`
+sudo find /Library/Developer/CommandLineTools/usr/lib/swift/pm \
+     -name "*.private.swiftinterface" -exec mv {} {}.disabled \;
 ```
 
-`probe` is the milestone: if the handshake succeeds, cert generation, Keychain
-identity, and TLS client auth all work, and everything left is message parsing.
-
-## Turning on the TV
-
-The Mi Box is a *source* device — it has no HDMI inputs and cannot switch your
-TV's input. The Android app solves this with the phone's IR blaster, which a
-Mac doesn't have.
-
-Use **HDMI-CEC** instead: when the box wakes it sends a CEC "One Touch Play",
-which powers the TV on *and* switches it to the box's input. Enable CEC on the
-TV first — Samsung *Anynet+*, LG *SimpLink*, Sony *Bravia Sync*, Xiaomi/TCL
-just *CEC*. It's usually off by default.
-
-Test it with the physical remote before writing any more code.
-
-## Layout
-
-```
-Sources/ATVKit/          protocol core (no UI)
-  Models.swift           Device, RemoteCommand, AdapterKind, WakeProfile
-  Identity.swift         RSA keypair -> self-signed cert -> Keychain -> SecIdentity
-  Transport.swift        NWParameters with client auth + verify block
-  Discovery.swift        NWBrowser mDNS + ARP MAC lookup
-  Wake.swift             magic packet, port 6466, 500 ms settle
-  Framing.swift          varint length-delimited framing
-  DeviceAdapter.swift    the per-brand protocol
-  AndroidTVAdapter.swift Android TV v2
-
-Sources/ZapperApp/       SwiftUI menu bar app
-Sources/zapper/          CLI
-Scripts/make-app.sh      bundles the .app without Xcode
-```
-
-## Next steps
-
-1. Fix the toolchain, run `swift test`
-2. `zapper discover`, then `zapper probe <ip>`
-3. Generate protobuf types (`PROTOBUF.md`), implement `pair()` / `connect()`
-4. Tailscale for control from outside the LAN
-5. Second adapter — Tizen / webOS / Bravia / SmartCast
-
-## Testing the TLS layer without Swift
-
-Useful when something stops working and you want to know whether it's your code
-or the network. Note the escaped slashes — openssl treats `/` in `-subj` as a
-field separator:
+If SwiftPM still fails, reinstall the tools cleanly:
 
 ```bash
-openssl req -x509 -newkey rsa:2048 -keyout k.pem -out c.pem -days 3650 -nodes \
-  -subj "/CN=atvremote\/MacBookPro\/MacBookPro\/MacBookPro18_3\/$(uuidgen)"
-
-openssl s_client -connect "[fe80::...%en0]:6467" -cert c.pem -key k.pem -tls1_2
+sudo rm -rf /Library/Developer/CommandLineTools && xcode-select --install
 ```
 
-A successful handshake plus `Verify return code: 18 (self-signed certificate)`
-is the expected, healthy result.
+`make-app.sh` compiles with `swiftc` directly rather than through SwiftPM, so it
+works even when the SwiftPM manifest library is broken.
+
+**Casting a screen does nothing.** Check that Zapper has Screen Recording
+permission in System Settings → Privacy & Security, then relaunch. macOS only
+applies the grant to a fresh launch.
+
+**The TV won't pair or respond.** Make sure the Mac and the TV are on the same
+network and that CEC / the remote setting is enabled on the TV. `zapper probe
+<host>` tells you whether the TLS layer is reaching the device.
+
+## A note on the Mi TVs this was built against
+
+The Xiaomi TVs tested here (platform `MiTV-MSSP3`) publish no IPv4 address and
+share the mDNS hostname `Android.local.`, so discovery only yields IPv6
+link-local addresses. Zapper recovers the hardware MAC from the EUI-64 interface
+identifier for Wake-on-LAN. The device certificate's MAC is the Wi-Fi MAC plus
+one (the Bluetooth MAC), and the certificate subject format varies between
+firmware versions, so Zapper identifies devices by their mDNS name and never
+parses the certificate.
