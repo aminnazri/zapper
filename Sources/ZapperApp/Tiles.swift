@@ -342,6 +342,7 @@ private struct CastDrawer: View {
         }
         .animation(.spring(response: 0.38, dampingFraction: 0.85), value: state.casting?.id)
         .animation(.spring(response: 0.38, dampingFraction: 0.85), value: state.youTubeOffer)
+        .onAppear { if Snapshotter.opensScreenPicker { pickingScreen = true } }
     }
 
     private func castLink() {
@@ -363,6 +364,8 @@ private struct ScreenSourcePicker: View {
     @State private var pageCropAllowed = PageTracker.isTrusted
     /// Real-time mirror frame rate, remembered between launches.
     @AppStorage(AppState.mirrorFPSKey) private var mirrorFPS = 60
+    /// Real-time mirror picture quality, remembered between launches.
+    @AppStorage(AppState.mirrorQualityKey) private var mirrorQuality = ScreenMirror.Quality.balanced.rawValue
 
     private var shown: [ScreenChoice] { choices?.filter { $0.kind == kind } ?? [] }
 
@@ -399,6 +402,7 @@ private struct ScreenSourcePicker: View {
             }
 
             if kind == .display, ScreenStream.hasPermission {
+                qualityPicker
                 fpsPicker
             }
 
@@ -411,27 +415,39 @@ private struct ScreenSourcePicker: View {
         }
     }
 
-    /// Frame-rate choice for the real-time (Screen) mirror. Takes effect on
-    /// the next cast.
-    private var fpsPicker: some View {
+    /// Resolution and data rate for the real-time (Screen) mirror. Takes
+    /// effect on the next cast.
+    private var qualityPicker: some View {
+        settingRow("Quality", symbol: "sparkles.tv",
+                   options: ScreenMirror.Quality.allCases.map { ($0.rawValue, $0.label) },
+                   selection: $mirrorQuality, width: 46)
+            .help("540p is lightest on Wi-Fi; 1080p is sharpest but needs a strong signal. "
+                + "Applies to the next Screen cast.")
+    }
+
+    /// A labelled row of capsule options, shared by the quality and frame
+    /// rate settings.
+    private func settingRow(_ title: String, symbol: String, options: [(String, String)],
+                            selection: Binding<String>, width: CGFloat) -> some View {
         HStack(spacing: 6) {
-            Image(systemName: "speedometer")
+            Image(systemName: symbol)
                 .font(.system(size: 10, weight: .semibold))
                 .foregroundStyle(Theme.textTertiary)
-            Text("Frame rate")
+                .frame(width: 14)
+            Text(title)
                 .font(.system(size: 11, weight: .medium))
                 .foregroundStyle(Theme.textSecondary)
             Spacer(minLength: 6)
             HStack(spacing: 2) {
-                ForEach(AppState.mirrorFPSOptions, id: \.self) { fps in
-                    let selected = fps == mirrorFPS
+                ForEach(options, id: \.0) { value, label in
+                    let selected = value == selection.wrappedValue
                     Button {
-                        withAnimation(.easeOut(duration: 0.15)) { mirrorFPS = fps }
+                        withAnimation(.easeOut(duration: 0.15)) { selection.wrappedValue = value }
                     } label: {
-                        Text("\(fps)")
+                        Text(label)
                             .font(.system(size: 11, weight: .semibold))
                             .foregroundStyle(selected ? Color.white : Theme.textSecondary)
-                            .frame(width: 34, height: 22)
+                            .frame(width: width, height: 22)
                             .background(Capsule().fill(selected ? Theme.accent : Color.clear))
                             .contentShape(Capsule())
                     }
@@ -441,7 +457,17 @@ private struct ScreenSourcePicker: View {
             .padding(2)
             .background(Capsule().fill(Color.black.opacity(0.3)))
         }
-        .help("Higher is smoother; lower is lighter on Wi-Fi. Applies to the next Screen cast.")
+    }
+
+    /// Frame-rate choice for the real-time (Screen) mirror. Takes effect on
+    /// the next cast.
+    private var fpsPicker: some View {
+        settingRow("Frame rate", symbol: "speedometer",
+                   options: AppState.mirrorFPSOptions.map { ("\($0)", "\($0)") },
+                   selection: Binding(get: { "\(mirrorFPS)" },
+                                      set: { mirrorFPS = Int($0) ?? 60 }),
+                   width: 34)
+            .help("Higher is smoother; lower is lighter on Wi-Fi. Applies to the next Screen cast.")
     }
 
     @ViewBuilder private var caption: some View {

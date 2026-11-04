@@ -39,19 +39,53 @@ public final class ScreenMirror: NSObject, @unchecked Sendable {
         super.init()
     }
 
+    /// Picture size and data rate for the real-time mirror. Higher is
+    /// sharper but sends more packets per frame, which a weak Wi-Fi link
+    /// turns into loss and lag.
+    public enum Quality: String, CaseIterable, Sendable {
+        case low, balanced, high
+
+        /// Width of the 16:9 frame sent to the TV.
+        public var maxWidth: Int {
+            switch self {
+            case .low: return 960        // 540p
+            case .balanced: return 1280  // 720p
+            case .high: return 1920      // 1080p
+            }
+        }
+
+        /// The encoder's target, also advertised to the TV in the OFFER.
+        public var bitRate: Int {
+            switch self {
+            case .low: return 2_000_000
+            case .balanced: return 4_000_000
+            case .high: return 8_000_000
+            }
+        }
+
+        public var label: String {
+            switch self {
+            case .low: return "540p"
+            case .balanced: return "720p"
+            case .high: return "1080p"
+            }
+        }
+    }
+
     /// Negotiates with the TV and starts mirroring `displayID` (or the main
     /// display). Throws if the receiver rejects the mirroring session.
     public static func start(host: String, displayID: CGDirectDisplayID? = nil,
-                             fps: Int = 30) async throws -> ScreenMirror {
+                             fps: Int = 30, quality: Quality = .balanced) async throws -> ScreenMirror {
         guard hasPermission else {
             throw ATVError.screenCapture("Screen Recording permission is off")
         }
         let mirror = ScreenMirror()
-        try await mirror.begin(host: host, displayID: displayID, fps: fps)
+        try await mirror.begin(host: host, displayID: displayID, fps: fps, quality: quality)
         return mirror
     }
 
-    private func begin(host: String, displayID: CGDirectDisplayID?, fps: Int) async throws {
+    private func begin(host: String, displayID: CGDirectDisplayID?, fps: Int,
+                       quality: Quality) async throws {
         let content = try await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false)
         let target = content.displays.first { $0.displayID == (displayID ?? CGMainDisplayID()) }
             ?? content.displays.first
@@ -62,14 +96,13 @@ public final class ScreenMirror: NSObject, @unchecked Sendable {
         // 16:10 (MacBook) or other non-16:9 frame comes out stretched. We let
         // ScreenCaptureKit letterbox the real display into a 16:9 canvas with
         // black bars, so the pixels we send already match the panel 1:1.
-        let (width, height) = ScreenMirror.canvas16x9(for: display.frame.size)
+        let (width, height) = ScreenMirror.canvas16x9(for: display.frame.size, maxWidth: quality.maxWidth)
 
-        // Wi-Fi, not wired: keep the data rate low so frames fit the air
-        // without flooding it. 1080p at 8 Mbps caused a packet-loss storm
-        // (constant NACK retransmits) that showed up as lag. 720p at ~4 Mbps
-        // is a quarter of the packets per frame. The encoder and the OFFER
-        // must advertise the same ceiling.
-        let bitRate = 4_000_000
+        // Wi-Fi, not wired: on a busy network 1080p at 8 Mbps caused a
+        // packet-loss storm (constant NACK retransmits) that showed up as lag,
+        // which is why 720p at 4 Mbps is the default. The encoder and the
+        // OFFER must advertise the same ceiling.
+        let bitRate = quality.bitRate
 
         // 1. Negotiate. The OFFER advertises this session's key/IV and SSRC.
         let session = try await MirrorSession.connect(host: host)
@@ -130,13 +163,11 @@ public final class ScreenMirror: NSObject, @unchecked Sendable {
     }
 
     /// A 16:9 pixel canvas that the display's content letterboxes into,
-    /// capped at 1080p and never upscaling a small display much past 2×.
+    /// at most `maxWidth` wide and never upscaling a small display past 2×.
     /// Even dimensions, as H.264 requires.
-    static func canvas16x9(for points: CGSize) -> (Int, Int) {
+    static func canvas16x9(for points: CGSize, maxWidth: Int = 1280) -> (Int, Int) {
         let longEdge = max(points.width, points.height) * 2   // Retina
-        // Cap at 720p: 1080p over Wi-Fi drops too many packets. 720p is the
-        // sweet spot of sharp-enough and reliably deliverable.
-        let w = min(1280, Int(longEdge)) & ~1
+        let w = min(maxWidth, Int(longEdge)) & ~1
         let h = (w * 9 / 16) & ~1
         return (max(w, 2), max(h, 2))
     }

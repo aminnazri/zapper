@@ -103,6 +103,12 @@ final class AppState: ObservableObject {
         let stored = UserDefaults.standard.integer(forKey: mirrorFPSKey)
         return mirrorFPSOptions.contains(stored) ? stored : 60
     }
+    static let mirrorQualityKey = "mirrorQuality"
+    /// The chosen mirror quality; 720p unless changed.
+    static var mirrorQuality: ScreenMirror.Quality {
+        UserDefaults.standard.string(forKey: mirrorQualityKey)
+            .flatMap(ScreenMirror.Quality.init(rawValue:)) ?? .balanced
+    }
     /// A shared browser page turned out to be a YouTube video.
     @Published private(set) var youTubeOffer: YouTubeOffer?
     private var lastCatchUp = Date.distantPast
@@ -961,9 +967,11 @@ final class AppState: ObservableObject {
         Log.info("UI", "real-time mirror \(choice.title) to \(device.name)")
 
         let fps = AppState.mirrorFPS
+        let quality = AppState.mirrorQuality
         Task {
             do {
-                let m = try await ScreenMirror.start(host: device.host, displayID: displayID, fps: fps)
+                let m = try await ScreenMirror.start(host: device.host, displayID: displayID,
+                                                     fps: fps, quality: quality)
                 guard casting?.id == attempt.id else { m.stop(); return }
                 screenMirror = m
                 m.onStop = { [weak self, weak m] in
@@ -1578,12 +1586,25 @@ extension AppState {
             return
         }
         selectedID = living.id
+        if scene == .pairing {
+            isPairing = true
+            pairingCode = "4F2A"
+            status = "Pairing with \(living.name)…"
+            return
+        }
         link = .online
         isOn = true
         volumeLevel = 18
         volumeMax = 100
         currentAppLabel = "YouTube"
         status = "Sent Home"
+
+        if scene == .keyboard {
+            textFieldReady = true
+            typedText = "lofi hip hop"
+            tvFieldText = "lofi hip hop"
+            status = "Typing on the TV"
+        }
 
         if scene == .cast {
             casting = CastNow(title: "Built-in Retina Display", symbol: "display",

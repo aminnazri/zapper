@@ -24,7 +24,7 @@ func usage() -> Never {
       watch <host> [seconds]   print device state (foreground app, volume)
       type <host> <text…>      type text into the focused field on the TV
       wake <mac> [broadcast]   send a wake-on-LAN magic packet
-      mirror <host> [secs]     real-time screen mirror over Cast Streaming
+      mirror <host> [secs] [q] real-time screen mirror; q is 540p, 720p or 1080p
       mirror-probe <host>      negotiate a Cast Streaming session and print the
                                receiver's ANSWER (no capture, safe to test)
       identity [reset]         show or regenerate the client certificate
@@ -273,6 +273,9 @@ case "mirror":
     guard args.count >= 2 else { usage() }
     let host = args[1]
     let seconds = args.count >= 3 ? Int(args[2]) ?? 30 : 30
+    let quality = args.count >= 4
+        ? ScreenMirror.Quality.allCases.first { $0.label == args[3] || $0.rawValue == args[3] } ?? .balanced
+        : .balanced
     do {
         if !ScreenMirror.hasPermission {
             print("Screen Recording permission is off — requesting it now …")
@@ -280,8 +283,8 @@ case "mirror":
             print("Grant it in System Settings › Privacy & Security › Screen Recording, then re-run.")
             exit(1)
         }
-        print("Starting real-time mirror to \(host) for \(seconds)s …")
-        let mirror = try await ScreenMirror.start(host: host)
+        print("Starting real-time \(quality.label) mirror to \(host) for \(seconds)s …")
+        let mirror = try await ScreenMirror.start(host: host, quality: quality)
         print("Mirroring. Ctrl-C to stop early.")
         try? await Task.sleep(nanoseconds: UInt64(seconds) * 1_000_000_000)
         mirror.stop()

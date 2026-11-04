@@ -92,6 +92,10 @@ whichever release is latest and expects that name.
 
 ## Using the app
 
+> **New here?** The [user guide](docs/USER-GUIDE.md) walks through every part
+> of the app with screenshots: pairing, the remote, each drawer, casting,
+> screen sharing, and the quality settings.
+
 Open the menu and Zapper scans the network for TVs. Pick one and it connects.
 The first time you connect to a given TV it asks you to pair: the TV shows a
 six-character code, you type it into the app, and it's remembered after that.
@@ -135,12 +139,12 @@ fraction of a second rather than the ~2s that normal media casting buffers.
 
 A few things to know:
 
-- The frame rate is adjustable in the Screen tab (24–120). Higher is smoother;
-  lower is easier on a weak Wi-Fi link. If the picture breaks up or stutters,
-  drop it.
-- It streams at 720p to stay within what Wi-Fi can carry reliably. 1080p floods
-  most home networks and the resulting packet loss looks worse than a clean
-  720p.
+- Quality and frame rate are set in the Screen tab. Quality is **540p**
+  (2 Mbps), **720p** (4 Mbps, the default) or **1080p** (8 Mbps); frame rate is
+  24–120 fps, 60 by default. 1080p floods many home Wi-Fi networks, and the
+  packet loss looks worse than a clean 720p, so only use it on a strong
+  connection. If the picture breaks up or stutters, lower quality first, then
+  the frame rate.
 - If the TV's mirroring receiver refuses the session, Zapper falls back to the
   regular casting path automatically, so you still get a picture.
 - It's video only for now. Sound keeps playing on the Mac. If you need the
@@ -179,7 +183,7 @@ zapper applink <host> <uri>     launch an app or deep link on the device
 zapper type <host> <text…>      type text into the focused field
 zapper watch <host> [seconds]   print device state (foreground app, volume)
 zapper wake <mac> [broadcast]   send a Wake-on-LAN magic packet
-zapper mirror <host> [secs]     real-time screen mirror over Cast Streaming
+zapper mirror <host> [secs] [q] real-time screen mirror; q = 540p, 720p, 1080p
 zapper mirror-probe <host>      negotiate a mirror session and print the answer
 zapper identity [reset]         show or regenerate the client certificate
 ```
@@ -217,6 +221,8 @@ Sources/ATVKit/              protocol core, no UI
 Sources/ZapperApp/           SwiftUI menu bar app
 Sources/zapper/              command-line tool
 Scripts/make-app.sh          builds and signs the .app without Xcode
+Scripts/make-dmg.sh          packages the app into a drag-to-install DMG
+docs/USER-GUIDE.md           how to use the app, with screenshots
 Firmware/zapper-bridge/      optional ESP32 Bluetooth bridge firmware
 ```
 

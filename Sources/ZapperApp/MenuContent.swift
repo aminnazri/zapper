@@ -9,6 +9,7 @@ struct MenuContent: View {
     /// keyboard capture, and `snapshotDrawer` opened from the start.
     var isSnapshot = false
     var snapshotDrawer: Drawer? = nil
+    var snapshotTouchpad = false
     @StateObject private var keys = KeyMonitor()
     @State private var drawer: Drawer?
     /// Drives the staggered entrance each time the panel opens.
@@ -19,6 +20,9 @@ struct MenuContent: View {
     /// Remembered between launches.
     @AppStorage("touchpadMode") private var touchpad = false
     @Namespace private var modeSwitch
+
+    /// The saved preference, except in a screenshot, which sets its own.
+    private var showsTouchpad: Bool { isSnapshot ? snapshotTouchpad : touchpad }
 
     private enum Screen { case pairing, empty, picker, remote }
 
@@ -202,7 +206,7 @@ struct MenuContent: View {
             }
             Spacer(minLength: 0)
             ZStack {
-                if touchpad {
+                if showsTouchpad {
                     TouchPad(state: state)
                         .transition(.scale(scale: 0.9).combined(with: .opacity))
                 } else {
@@ -210,7 +214,7 @@ struct MenuContent: View {
                         .transition(.scale(scale: 0.9).combined(with: .opacity))
                 }
             }
-            .animation(.spring(response: 0.36, dampingFraction: 0.82), value: touchpad)
+            .animation(.spring(response: 0.36, dampingFraction: 0.82), value: showsTouchpad)
             Spacer(minLength: 0)
             VStack(spacing: 0) {
                 roundKey("gearshape.fill", .settings, "TV settings")
@@ -224,8 +228,8 @@ struct MenuContent: View {
     /// D-pad / Touchpad switch, with a highlight that slides between them.
     private var modePicker: some View {
         HStack(spacing: 2) {
-            modeOption("D-pad", "dpad.fill", selected: !touchpad) { touchpad = false }
-            modeOption("Touchpad", "rectangle.and.hand.point.up.left.fill", selected: touchpad) { touchpad = true }
+            modeOption("D-pad", "dpad.fill", selected: !showsTouchpad) { touchpad = false }
+            modeOption("Touchpad", "rectangle.and.hand.point.up.left.fill", selected: showsTouchpad) { touchpad = true }
         }
         .padding(3)
         .background(Capsule().fill(Theme.surface))

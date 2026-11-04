@@ -3,9 +3,23 @@ import AppKit
 @preconcurrency import ScreenCaptureKit
 import ATVKit
 
-/// The panel states shown in the README.
+/// The panel states shown in the README and the user guide.
 enum SnapshotScene: String, CaseIterable {
-    case remote, cast, picker
+    case picker, pairing, remote, touchpad
+    case input, apps, media, keyboard
+    case castIdle = "cast-idle", screen, cast
+
+    /// The drawer open in this scene, if any.
+    var drawer: Drawer? {
+        switch self {
+        case .input: return .input
+        case .apps: return .apps
+        case .media: return .media
+        case .keyboard: return .keyboard
+        case .castIdle, .screen, .cast: return .cast
+        default: return nil
+        }
+    }
 }
 
 /// Renders the real menu panel into PNGs for the README:
@@ -17,6 +31,9 @@ enum SnapshotScene: String, CaseIterable {
 /// holds for casting. The app quits when done.
 @MainActor
 enum Snapshotter {
+    /// Opens the cast drawer's screen picker on appear, for the `screen` scene.
+    static var opensScreenPicker = false
+
     static var outputDirectory: URL? {
         let args = CommandLine.arguments
         guard let i = args.firstIndex(of: "--snapshot"), i + 1 < args.count else { return nil }
@@ -28,8 +45,10 @@ enum Snapshotter {
         for scene in SnapshotScene.allCases {
             let state = AppState()
             state.applyShowcase(scene)
+            opensScreenPicker = scene == .screen
             let panel = MenuContent(state: state, isSnapshot: true,
-                                    snapshotDrawer: scene == .cast ? .cast : nil)
+                                    snapshotDrawer: scene.drawer,
+                                    snapshotTouchpad: scene == .touchpad)
                 .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
 
             let host = NSHostingView(rootView: panel)
