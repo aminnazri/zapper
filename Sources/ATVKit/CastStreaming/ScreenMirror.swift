@@ -27,6 +27,15 @@ public final class ScreenMirror: NSObject, @unchecked Sendable {
     private let videoSSRC: UInt32
     private var activity: NSObjectProtocol?
 
+    // Only touched on `queue`. ScreenCaptureKit sends nothing while the screen
+    // is still, so a key-frame request would otherwise wait until something
+    // moves — leaving a broken picture on the TV. We keep the newest frame
+    // and re-encode it when a key frame is due or the stream has gone quiet.
+    private var lastPixels: CVPixelBuffer?
+    private var lastEncodeAt: UInt64 = 0
+    private var refreshTimer: DispatchSourceTimer?
+    private var skippedForCongestion = 0
+
     public var onStop: (@Sendable () -> Void)?
 
     public static var hasPermission: Bool { CGPreflightScreenCaptureAccess() }
@@ -120,7 +129,8 @@ public final class ScreenMirror: NSObject, @unchecked Sendable {
         let encoder = try H264Encoder(width: width, height: height, fps: fps, bitRate: bitRate)
         let transport = MirrorTransport(host: result.host, port: result.answer.udpPort,
                                         senderSSRC: videoSSRC,
-                                        videoPayloadType: CastPayloadType.videoAndroidTV)
+                                        videoPayloadType: CastPayloadType.videoAndroidTV,
+                                        bitRate: bitRate)
         self.encoder = encoder
         self.transport = transport
 
@@ -148,7 +158,7 @@ public final class ScreenMirror: NSObject, @unchecked Sendable {
         // configuration copy/serialize on this OS (CGColorCreateCopy / null).
         // Shallow queue: hand us the newest frame and don't sit on a backlog.
         // A deep queue trades latency for smoothness, the wrong way round here.
-        config.queueDepth = 3
+        config.queueDepth = 4    // one is held back for refreshes
         let own = content.applications.filter { $0.processID == ProcessInfo.processInfo.processIdentifier }
         let filter = SCContentFilter(display: display, excludingApplications: own, exceptingWindows: [])
         let stream = SCStream(filter: filter, configuration: config, delegate: self)
@@ -157,6 +167,7 @@ public final class ScreenMirror: NSObject, @unchecked Sendable {
         self.capture = stream
 
         encoder.requestKeyFrame()   // the receiver needs a key frame to begin
+        startRefreshTimer()
         activity = ProcessInfo.processInfo.beginActivity(
             options: [.idleDisplaySleepDisabled, .userInitiated], reason: "Mirroring the screen to a TV")
         Log.info("Mirror", "live mirror \(width)x\(height)@\(fps) → \(result.host):\(result.answer.udpPort)")
@@ -172,7 +183,32 @@ public final class ScreenMirror: NSObject, @unchecked Sendable {
         return (max(w, 2), max(h, 2))
     }
 
+    private func startRefreshTimer() {
+        let timer = DispatchSource.makeTimerSource(queue: queue)
+        timer.schedule(deadline: .now() + 0.05, repeating: 0.05)
+        timer.setEventHandler { [weak self] in self?.refreshIfIdle() }
+        timer.resume()
+        refreshTimer = timer
+    }
+
+    /// Re-sends the last frame when a key frame is waiting (after 50 ms of no
+    /// capture) or nothing has gone out for a second, so the TV recovers from
+    /// loss and never sits on a stale stream while the screen is still.
+    private func refreshIfIdle() {
+        guard let encoder, let pixels = lastPixels else { return }
+        let idle = DispatchTime.now().uptimeNanoseconds &- lastEncodeAt
+        let due: UInt64 = encoder.keyFramePending ? 50_000_000 : 1_000_000_000
+        guard idle >= due, transport?.isCongested != true else { return }
+        encode(pixels, pts: CMClockGetTime(CMClockGetHostTimeClock()))
+    }
+
+    private func encode(_ pixels: CVPixelBuffer, pts: CMTime) {
+        lastEncodeAt = DispatchTime.now().uptimeNanoseconds
+        encoder?.encode(pixels, pts: pts)
+    }
+
     public func stop() {
+        refreshTimer?.cancel(); refreshTimer = nil
         if let capture { Task { try? await capture.stopCapture() } }
         capture = nil
         encoder?.stop(); encoder = nil
@@ -194,7 +230,18 @@ extension ScreenMirror: SCStreamOutput, SCStreamDelegate {
               let raw = info.first?[.status] as? Int,
               SCFrameStatus(rawValue: raw) == .complete,
               let pixels = CMSampleBufferGetImageBuffer(sample) else { return }
-        encoder?.encode(pixels, pts: CMSampleBufferGetPresentationTimeStamp(sample))
+        lastPixels = pixels
+        // Falling behind on the network: drop this capture rather than queue
+        // it, so the TV stays close to live instead of drifting seconds late.
+        // Skipping before encoding keeps the frame ids contiguous.
+        if transport?.isCongested == true {
+            skippedForCongestion += 1
+            if skippedForCongestion == 1 || skippedForCongestion % 60 == 0 {
+                Log.debug("Mirror", "network backed up, skipped \(skippedForCongestion) frames")
+            }
+            return
+        }
+        encode(pixels, pts: CMSampleBufferGetPresentationTimeStamp(sample))
     }
 
     public func stream(_ stream: SCStream, didStopWithError error: Error) {

@@ -287,7 +287,11 @@ when you start something else on the TV, or when you quit Zapper.
 
 ## 12. Keyboard shortcuts
 
-These work while the panel is open and no text field is selected.
+**⌥Space** (Option-Space) opens and closes the panel from anywhere, including
+a full-screen app where the menu bar is hidden. If another app already uses
+⌥Space, Zapper takes **⌥Z** instead.
+
+The rest work while the panel is open and no text field is selected.
 
 | Key | Does |
 | --- | --- |

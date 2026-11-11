@@ -254,19 +254,46 @@ public enum ATVIdentity {
 
     /// Re-unlocks the keychain using the password we stored. Cheap, silent, and
     /// safe to call before every connection in case macOS re-locked it.
+    ///
+    /// Returns the identity to use. Normally that is `identity` unchanged. If
+    /// our stored password no longer opens the keychain (the two files got
+    /// out of step), using the key would make macOS ask the user for a
+    /// password they never had — on every connection. Instead we rebuild the
+    /// keychain from the stored PKCS#12 and return the fresh identity. Same
+    /// certificate, so the TV's pairing still holds.
     @available(macOS, deprecated: 10.10)
-    public static func unlockIfNeeded() {
+    @discardableResult
+    public static func unlockIfNeeded(_ identity: SecIdentity? = nil) -> SecIdentity? {
+        guard unlockStoredKeychain() else {
+            Log.warn("Identity", "stored keychain password is stale; rebuilding the keychain")
+            lock.lock()
+            cached = nil
+            var old: SecKeychain?
+            if SecKeychainOpen(keychainURL.path, &old) == errSecSuccess, let old { SecKeychainDelete(old) }
+            try? FileManager.default.removeItem(at: keychainURL)
+            try? FileManager.default.removeItem(at: keychainPassURL)
+            lock.unlock()
+            return (try? loadOrCreate()) ?? identity
+        }
+        return identity
+    }
+
+    /// True if the keychain is unlocked (or there is none to unlock); false
+    /// only when our stored password is rejected.
+    @available(macOS, deprecated: 10.10)
+    private static func unlockStoredKeychain() -> Bool {
+        guard FileManager.default.fileExists(atPath: keychainURL.path) else { return true }
         guard let password = try? String(contentsOf: keychainPassURL, encoding: .utf8),
-              !password.isEmpty else { return }
+              !password.isEmpty else { return false }
         var keychain: SecKeychain?
         guard SecKeychainOpen(keychainURL.path, &keychain) == errSecSuccess,
-              let keychain else { return }
-        var status = SecKeychainStatus()
-        guard SecKeychainGetStatus(keychain, &status) == errSecSuccess else { return }
-        if status & SecKeychainStatus(kSecUnlockStateStatus) == 0 {
-            let result = SecKeychainUnlock(keychain, UInt32(password.utf8.count), password, true)
-            Log.debug("Identity", "re-unlocked keychain: \(result)")
-        }
+              let keychain else { return true }
+        // Unlock even if it already looks unlocked: that also checks the
+        // password, so a stale one is caught now rather than the next time
+        // macOS re-locks the keychain and asks the user instead.
+        let result = SecKeychainUnlock(keychain, UInt32(password.utf8.count), password, true)
+        if result != errSecSuccess { Log.debug("Identity", "keychain unlock: \(result)") }
+        return result != errSecAuthFailed
     }
 
     /// SecAccess whose ACLs trust any application, so using the private key

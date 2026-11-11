@@ -114,8 +114,9 @@ While the panel is open your Mac keyboard drives the TV: arrow keys, Return,
 Escape, Space for play/pause, `H` for home, `M` for mute, `-`/`=` for volume,
 and `/` to open the on-screen keyboard.
 
-The global hotkey **⌃⌥⌘T** turns the TV on from anywhere, even with the panel
-closed.
+Two global hotkeys work from anywhere: **⌥Space** opens and closes the panel
+(handy in a full-screen app, where the menu bar is hidden), and **⌃⌥⌘T** turns
+the TV on.
 
 ## Casting
 

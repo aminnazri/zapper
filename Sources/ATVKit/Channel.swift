@@ -35,7 +35,8 @@ public final class Channel: @unchecked Sendable {
                                identity: SecIdentity,
                                timeout: TimeInterval = 4) async throws -> Channel {
         Log.debug("Channel", "connecting \(host):\(port) (timeout \(timeout)s)")
-        ATVIdentity.unlockIfNeeded()
+        // May hand back a rebuilt identity if the keychain had to be repaired.
+        let identity = ATVIdentity.unlockIfNeeded(identity) ?? identity
         let captured = CertBox()
 
         let tls = NWProtocolTLS.Options()

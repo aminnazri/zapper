@@ -44,7 +44,7 @@ public struct MirrorStreamConfig: Sendable {
 
     public static func video(index: Int, ssrc: UInt32, crypto: FrameCrypto,
                              width: Int, height: Int, fps: Int = 30,
-                             maxBitRate: Int = 8_000_000, targetDelayMs: Int = 400) -> MirrorStreamConfig {
+                             maxBitRate: Int = 8_000_000, targetDelayMs: Int = 200) -> MirrorStreamConfig {
         MirrorStreamConfig(index: index, kind: .video, codec: .h264,
                            payloadType: CastPayloadType.videoAndroidTV, ssrc: ssrc, crypto: crypto,
                            targetDelayMs: targetDelayMs, width: width, height: height,

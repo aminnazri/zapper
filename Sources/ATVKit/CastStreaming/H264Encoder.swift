@@ -32,7 +32,6 @@ public final class H264Encoder: @unchecked Sendable {
 
     private var frameCounter: UInt32 = 0
     private var lastFrameId: UInt32 = 0
-    private var rtpBase: CMTime?
     private var forceKeyFrameNext = false
 
     /// Delivered on the encoder's callback thread, in encode order.
@@ -73,19 +72,23 @@ public final class H264Encoder: @unchecked Sendable {
         set(kVTCompressionPropertyKey_RealTime, kCFBooleanTrue)
         set(kVTCompressionPropertyKey_ProfileLevel, kVTProfileLevel_H264_Main_AutoLevel)
         set(kVTCompressionPropertyKey_AllowFrameReordering, kCFBooleanFalse)
+        // Spend less time per frame: a few ms saved on every frame is
+        // latency the viewer feels; the quality cost is small at these rates.
+        set(kVTCompressionPropertyKey_PrioritizeEncodingSpeedOverQuality, kCFBooleanTrue)
         // One frame in, one frame out: never hold a frame back hoping to code
         // it more cheaply against a later one. This is the encoder's own latency.
         set(kVTCompressionPropertyKey_MaxFrameDelayCount, 1 as CFNumber)
         set(kVTCompressionPropertyKey_AverageBitRate, bitRate as CFNumber)
         set(kVTCompressionPropertyKey_ExpectedFrameRate, fps as CFNumber)
-        // Cap the rate-control buffer to ~2 frames so a burst can't build a
-        // backlog that arrives late; keeps bitrate honest without a VBV delay.
-        let perFrame = Double(bitRate) / Double(max(fps, 1))
+        // Hard ceiling of 1.5× the average over any one second. (This is
+        // [bytes, seconds] pairs — it used to say "two frames' worth per
+        // second", which starved the encoder to a few hundred kbps.)
         set(kVTCompressionPropertyKey_DataRateLimits,
-            [NSNumber(value: Int(perFrame * 2 / 8)), NSNumber(value: 1.0)] as CFArray)
-        // A key frame at least every few seconds, plus on demand (PLI/NACK).
-        set(kVTCompressionPropertyKey_MaxKeyFrameInterval, (fps * 4) as CFNumber)
-        set(kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, 4 as CFNumber)
+            [NSNumber(value: bitRate * 3 / 2 / 8), NSNumber(value: 1.0)] as CFArray)
+        // A key frame every 2 s so any leftover damage heals quickly, plus on
+        // demand when the receiver reports loss.
+        set(kVTCompressionPropertyKey_MaxKeyFrameInterval, (fps * 2) as CFNumber)
+        set(kVTCompressionPropertyKey_MaxKeyFrameIntervalDuration, 2 as CFNumber)
         // Cap the coded-frame delay so frames leave the encoder promptly.
         set(kVTCompressionPropertyKey_MaxH264SliceBytes, (RtpPacketizer.maxPayload * 64) as CFNumber)
     }
@@ -95,12 +98,12 @@ public final class H264Encoder: @unchecked Sendable {
         queue.async { self.forceKeyFrameNext = true }
     }
 
+    /// True when a key frame has been asked for but not yet started.
+    public var keyFramePending: Bool { queue.sync { forceKeyFrameNext } }
+
     /// Encodes one captured frame. `pts` is the capture presentation time.
     public func encode(_ pixelBuffer: CVPixelBuffer, pts: CMTime) {
         guard let session else { return }
-        queue.sync {
-            if rtpBase == nil { rtpBase = pts }
-        }
         var properties: [CFString: Any] = [:]
         if queue.sync(execute: { let f = forceKeyFrameNext; forceKeyFrameNext = false; return f }) {
             properties[kVTEncodeFrameOptionKey_ForceKeyFrame] = kCFBooleanTrue
@@ -159,15 +162,21 @@ public final class H264Encoder: @unchecked Sendable {
         queue.sync {
             let frameId = frameCounter
             frameCounter &+= 1
-            let base = rtpBase ?? pts
-            let seconds = (pts - base).seconds
-            let rtp = UInt32(truncatingIfNeeded: Int64((seconds * 90_000).rounded()))
+            // RTP time is the host clock at capture, in 90 kHz ticks. SCK
+            // timestamps are host-clock, so the transport can map RTP to wall
+            // time exactly for its Sender Reports (see `rtpNow`).
+            let rtp = H264Encoder.rtpTimestamp(pts)
             // A key frame references itself; a delta frame references its predecessor.
             let reference = isKey ? frameId : lastFrameId
             lastFrameId = frameId
             onFrame?(EncodedVideoFrame(frameId: frameId, referencedFrameId: reference,
                                        rtpTimestamp: rtp, isKeyFrame: isKey, annexB: annexB))
         }
+    }
+
+    /// 90 kHz RTP ticks for a host-clock time, wrapping at 32 bits.
+    public static func rtpTimestamp(_ hostTime: CMTime) -> UInt32 {
+        UInt32(truncatingIfNeeded: Int64((hostTime.seconds * 90_000).rounded()))
     }
 
     private static func isKeyFrame(_ sample: CMSampleBuffer) -> Bool {
